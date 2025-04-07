@@ -24,54 +24,75 @@ SERVICE_ACCOUNT_KEY_PATH = 'plantidentify-ca6f7-firebase-adminsdk-fbsvc-25fb51dc
 @st.cache_resource # Cache resource để chỉ khởi tạo Firebase 1 lần
 def initialize_firebase():
     """Khởi tạo Firebase Admin SDK."""
+    if firebase_admin._apps:
+        print("Firebase app already initialized (checked at start).")
+        return True
+
     try:
-        # Thử lấy credentials từ Streamlit Secrets trước (khi deploy)
-        firebase_creds_json = st.secrets.get("FIREBASE_SERVICE_ACCOUNT") # <<< Key phải khớp với tên Secret bạn đặt
-        if firebase_creds_json:
-            print("Initializing Firebase using Streamlit Secrets...")
-            # Chuyển đổi dict từ secrets thành credentials object
-            cred_obj = credentials.Certificate(firebase_creds_json)
-            firebase_admin.initialize_app(cred_obj, {
-                'storageBucket': f"{cred_obj.project_id}.appspot.com" # Tự động lấy project_id từ creds
-            })
-            print("Firebase initialized from Secrets.")
-        # Nếu không có secrets, thử tải từ file (khi chạy local)
+        firebase_creds_data = st.secrets.get("FIREBASE_SERVICE_ACCOUNT")
+
+        if firebase_creds_data and isinstance(firebase_creds_data, dict):
+            print("Initializing Firebase using Streamlit Secrets (as dict)...")
+            cred_obj = credentials.Certificate(firebase_creds_data)
+            try:
+                 # Lấy project ID một cách an toàn hơn
+                 project_id = cred_obj.project_id if hasattr(cred_obj, 'project_id') else firebase_creds_data.get('project_id')
+                 if not project_id:
+                     st.error("Không thể xác định Project ID từ thông tin credentials.")
+                     print("Error: Could not determine Project ID from credentials.")
+                     return False
+
+                 firebase_admin.initialize_app(cred_obj, {
+                     'storageBucket': f"{project_id}.appspot.com"
+                 })
+                 print("Firebase initialized from Secrets.")
+                 return True # <<< Trả về True khi thành công
+            except ValueError as ve: # Bắt lỗi khởi tạo cụ thể
+                if "The default Firebase app already exists" in str(ve):
+                    print("Firebase app already initialized (caught ValueError).")
+                    return True # Vẫn coi là thành công
+                else:
+                    raise # Ném lại lỗi ValueError khác
+            except Exception as e_init: # Bắt lỗi khác trong quá trình init từ secrets
+                 st.error(f"Lỗi khi thực sự khởi tạo Firebase từ Secrets: {e_init}")
+                 print(f"Error during actual Firebase init from Secrets: {e_init}")
+                 return False # <<< Trả về False khi lỗi
+
         elif os.path.exists(SERVICE_ACCOUNT_KEY_PATH):
             print(f"Initializing Firebase using local key file: {SERVICE_ACCOUNT_KEY_PATH}...")
-            cred = credentials.Certificate(SERVICE_ACCOUNT_KEY_PATH)
-            project_id = cred.project_id # Lấy project ID từ file key
-            firebase_admin.initialize_app(cred, {
-                'storageBucket': f"{project_id}.appspot.com" # <<< Cấu hình storage bucket
-            })
-            print("Firebase initialized from local file.")
+            try:
+                cred = credentials.Certificate(SERVICE_ACCOUNT_KEY_PATH)
+                project_id = cred.project_id
+                firebase_admin.initialize_app(cred, {
+                    'storageBucket': f"{project_id}.appspot.com"
+                })
+                print("Firebase initialized from local file.")
+                return True # <<< Trả về True khi thành công
+            except ValueError as ve:
+                if "The default Firebase app already exists" in str(ve):
+                    print("Firebase app already initialized (caught ValueError - local).")
+                    return True
+                else:
+                    raise
+            except Exception as e_init_local:
+                 st.error(f"Lỗi khi thực sự khởi tạo Firebase từ file local: {e_init_local}")
+                 print(f"Error during actual Firebase init from local file: {e_init_local}")
+                 return False # <<< Trả về False khi lỗi
+
         else:
+            # Không tìm thấy credentials ở cả secrets và local file
             st.error("Không tìm thấy thông tin xác thực Firebase (Secrets hoặc file key).")
             print("Firebase credentials not found (Secrets or local file).")
-            return False # Trả về False nếu không khởi tạo được
+            return False # <<< Trả về False
 
-        # Kiểm tra xem có app được khởi tạo chưa (để tránh lỗi nếu hàm cache chạy lại)
-        if not firebase_admin._apps:
-             # Logic khởi tạo lại nếu cần, nhưng cache_resource thường xử lý việc này
-             print("Warning: Firebase app not found after initialization attempt.")
-             return False
-
-        return True # Trả về True nếu khởi tạo thành công
-    except ValueError as ve:
-        # Bắt lỗi cụ thể nếu Firebase đã được khởi tạo trước đó
-        if "The default Firebase app already exists" in str(ve):
-            print("Firebase app already initialized.")
-            return True # Vẫn coi là thành công nếu đã có app
-        else:
-            st.error(f"Lỗi khi khởi tạo Firebase: {ve}")
-            print(f"Error initializing Firebase: {ve}")
-            return False
-    except Exception as e:
-        st.error(f"Lỗi không xác định khi khởi tạo Firebase: {e}")
-        print(f"Unknown error initializing Firebase: {e}")
-        return False
+    except Exception as e: # Bắt lỗi chung ở cấp độ cao nhất của hàm
+        st.error(f"Lỗi không xác định trong quá trình khởi tạo Firebase: {e}")
+        print(f"Unknown error during Firebase initialization process: {e}")
+        return False # <<< Trả về False
 
 # Gọi hàm khởi tạo ngay khi load utils.py (nhờ cache nên chỉ chạy 1 lần)
 firebase_initialized = initialize_firebase()
+print(f"UTILS: Firebase initialized status: {firebase_initialized}")
 
 # --- Model Loading ---
 @st.cache_resource
@@ -216,8 +237,10 @@ def search_taxa_autocomplete(query):
 # --- File Saving for Feedback ---
 def save_feedback_image(image_bytes, original_filename, label, base_dir=COLLECTED_DATA_DIR): # base_dir giờ là tiền tố trên Storage
     """Lưu ảnh phản hồi (dạng bytes) lên Firebase Cloud Storage."""
+    print(f"SAVE_FEEDBACK: Called. Firebase initialized status: {firebase_initialized}")
     if not firebase_initialized:
         st.error("Firebase chưa được khởi tạo, không thể lưu ảnh.")
+        print("SAVE_FEEDBACK: Firebase not initialized, aborting save.")
         return False, None
 
     try:
