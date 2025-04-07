@@ -1,0 +1,6 @@
+plant_classifier_app/
+├── .vscode/              # Thư mục cài đặt của VS Code (tự động tạo)
+├── venv/                 # Thư mục môi trường ảo (nếu bạn tạo)
+├── app.py                # File code chính của ứng dụng Streamlit
+├── best_plant_classifier_vgg16.h5  # File model .h5 tốt nhất của bạn (Model 1)
+└── requirements.txt      # File liệt kê các thư viện cần thiết (sẽ tạo ở bước cuối)
