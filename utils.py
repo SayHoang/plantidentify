@@ -20,75 +20,89 @@ from config import INAT_API_BASE_URL, COLLECTED_DATA_DIR
 
 # --- Firebase Initialization ---
 SERVICE_ACCOUNT_KEY_PATH = 'plantidentify-ca6f7-firebase-adminsdk-fbsvc-25fb51dcb6.json'
+CORRECT_BUCKET_NAME = "plantidentify-ca6f7.firebasestorage.app"
 
-@st.cache_resource # Cache resource để chỉ khởi tạo Firebase 1 lần
+@st.cache_resource
 def initialize_firebase():
     """Khởi tạo Firebase Admin SDK."""
     if firebase_admin._apps:
         print("Firebase app already initialized (checked at start).")
         return True
 
+    firebase_creds_data = None
+    # --- KIỂM TRA st.secrets MỘT CÁCH AN TOÀN ---
     try:
-        firebase_creds_data = st.secrets.get("FIREBASE_SERVICE_ACCOUNT")
-
-        if firebase_creds_data and isinstance(firebase_creds_data, dict):
-            print("Initializing Firebase using Streamlit Secrets (as dict)...")
-            cred_obj = credentials.Certificate(firebase_creds_data)
-            try:
-                 # Lấy project ID một cách an toàn hơn
-                 project_id = cred_obj.project_id if hasattr(cred_obj, 'project_id') else firebase_creds_data.get('project_id')
-                 if not project_id:
-                     st.error("Không thể xác định Project ID từ thông tin credentials.")
-                     print("Error: Could not determine Project ID from credentials.")
-                     return False
-
-                 firebase_admin.initialize_app(cred_obj, {
-                     'storageBucket': f"{project_id}.appspot.com"
-                 })
-                 print("Firebase initialized from Secrets.")
-                 return True # <<< Trả về True khi thành công
-            except ValueError as ve: # Bắt lỗi khởi tạo cụ thể
-                if "The default Firebase app already exists" in str(ve):
-                    print("Firebase app already initialized (caught ValueError).")
-                    return True # Vẫn coi là thành công
-                else:
-                    raise # Ném lại lỗi ValueError khác
-            except Exception as e_init: # Bắt lỗi khác trong quá trình init từ secrets
-                 st.error(f"Lỗi khi thực sự khởi tạo Firebase từ Secrets: {e_init}")
-                 print(f"Error during actual Firebase init from Secrets: {e_init}")
-                 return False # <<< Trả về False khi lỗi
-
-        elif os.path.exists(SERVICE_ACCOUNT_KEY_PATH):
-            print(f"Initializing Firebase using local key file: {SERVICE_ACCOUNT_KEY_PATH}...")
-            try:
-                cred = credentials.Certificate(SERVICE_ACCOUNT_KEY_PATH)
-                project_id = cred.project_id
-                firebase_admin.initialize_app(cred, {
-                    'storageBucket': f"{project_id}.appspot.com"
-                })
-                print("Firebase initialized from local file.")
-                return True # <<< Trả về True khi thành công
-            except ValueError as ve:
-                if "The default Firebase app already exists" in str(ve):
-                    print("Firebase app already initialized (caught ValueError - local).")
-                    return True
-                else:
-                    raise
-            except Exception as e_init_local:
-                 st.error(f"Lỗi khi thực sự khởi tạo Firebase từ file local: {e_init_local}")
-                 print(f"Error during actual Firebase init from local file: {e_init_local}")
-                 return False # <<< Trả về False khi lỗi
-
+        # Chỉ thử đọc secrets nếu thuộc tính tồn tại (chạy trên Cloud)
+        if hasattr(st, 'secrets'):
+            firebase_creds_data = st.secrets.get("FIREBASE_SERVICE_ACCOUNT")
+            print("Attempted to read from st.secrets.")
         else:
-            # Không tìm thấy credentials ở cả secrets và local file
-            st.error("Không tìm thấy thông tin xác thực Firebase (Secrets hoặc file key).")
-            print("Firebase credentials not found (Secrets or local file).")
-            return False # <<< Trả về False
+            print("st.secrets not available (running locally?).")
+    except Exception as secrets_e:
+        # Bắt lỗi nếu .get() thất bại vì lý do nào đó
+        print(f"Error accessing st.secrets: {secrets_e}")
+        firebase_creds_data = None # Đảm bảo là None nếu có lỗi
 
-    except Exception as e: # Bắt lỗi chung ở cấp độ cao nhất của hàm
-        st.error(f"Lỗi không xác định trong quá trình khởi tạo Firebase: {e}")
-        print(f"Unknown error during Firebase initialization process: {e}")
-        return False # <<< Trả về False
+    # --- ƯU TIÊN KHỞI TẠO TỪ SECRETS NẾU CÓ DỮ LIỆU HỢP LỆ ---
+    if firebase_creds_data and isinstance(firebase_creds_data, dict):
+        print("Initializing Firebase using Streamlit Secrets (as dict)...")
+        try:
+            cred_obj = credentials.Certificate(firebase_creds_data)
+            project_id = cred_obj.project_id if hasattr(cred_obj, 'project_id') else firebase_creds_data.get('project_id')
+            if not project_id:
+                 st.error("Không thể xác định Project ID từ Secrets.")
+                 print("Error: Could not determine Project ID from Secrets.")
+                 return False
+
+            firebase_admin.initialize_app(cred_obj, {
+                'storageBucket': CORRECT_BUCKET_NAME
+            })
+            print("Firebase initialized from Secrets.")
+            return True
+        except ValueError as ve:
+            if "The default Firebase app already exists" in str(ve):
+                print("Firebase app already initialized (caught ValueError - secrets).")
+                return True
+            else:
+                 st.error(f"Lỗi giá trị khi khởi tạo Firebase từ Secrets: {ve}")
+                 print(f"ValueError during Firebase init from Secrets: {ve}")
+                 return False
+        except Exception as e_init_secrets:
+            st.error(f"Lỗi khi khởi tạo Firebase từ Secrets: {e_init_secrets}")
+            print(f"Error during Firebase init from Secrets: {e_init_secrets}")
+            return False
+
+    # --- KHỞI TẠO TỪ FILE LOCAL NẾU SECRETS KHÔNG DÙNG ĐƯỢC ---
+    elif os.path.exists(SERVICE_ACCOUNT_KEY_PATH):
+        print(f"Initializing Firebase using local key file: {SERVICE_ACCOUNT_KEY_PATH}...")
+        try:
+            cred = credentials.Certificate(SERVICE_ACCOUNT_KEY_PATH)
+            project_id = cred.project_id
+            firebase_admin.initialize_app(cred, {
+                'storageBucket': CORRECT_BUCKET_NAME
+            })
+            print("Firebase initialized from local file.")
+            return True
+        except ValueError as ve:
+            if "The default Firebase app already exists" in str(ve):
+                print("Firebase app already initialized (caught ValueError - local).")
+                return True
+            else:
+                st.error(f"Lỗi giá trị khi khởi tạo Firebase từ file local: {ve}")
+                print(f"ValueError during Firebase init from local file: {ve}")
+                return False
+        except Exception as e_init_local:
+            st.error(f"Lỗi khi khởi tạo Firebase từ file local: {e_init_local}")
+            print(f"Error during Firebase init from local file: {e_init_local}")
+            return False
+
+    # --- KHÔNG TÌM THẤY CẢ SECRETS VÀ FILE LOCAL ---
+    else:
+        st.error("Không tìm thấy thông tin xác thực Firebase hợp lệ (cả Secrets và file key local).")
+        print("Firebase credentials not found (neither Secrets nor local file).")
+        # Hiển thị đường dẫn mong đợi của file key để người dùng dễ debug
+        st.info(f"Đảm bảo file key '{SERVICE_ACCOUNT_KEY_PATH}' tồn tại trong thư mục dự án khi chạy local.")
+        return False
 
 # Gọi hàm khởi tạo ngay khi load utils.py (nhờ cache nên chỉ chạy 1 lần)
 firebase_initialized = initialize_firebase()
