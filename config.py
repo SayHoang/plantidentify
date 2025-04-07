@@ -5,11 +5,11 @@ MODEL_PATH = 'best_plant_classifier_vgg16.h5'
 
 # Danh sách tên lớp model có thể nhận diện (PHẢI KHỚP THỨ TỰ HUẤN LUYỆN)
 # Ví dụ: ['Pothos', 'Monstera'] - Bạn cần xác nhận lại!
-CLASS_NAMES = ['Pothos', 'Monstera']
+CLASS_NAMES = ['Epipremnum Aureum', 'Monstera Deliciosa']
 
 CLASS_TO_SCIENTIFIC = {
-    'Pothos': 'Epipremnum_aureum', # Sử dụng gạch dưới cho tên thư mục
-    'Monstera': 'Monstera_deliciosa'
+    'Epipremnum Aureum': 'Epipremnum_aureum',
+    'Monstera Deliciosa': 'Monstera_deliciosa'
 }
 
 # Ngưỡng tin cậy để coi là chắc chắn (%)
