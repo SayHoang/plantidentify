@@ -194,20 +194,44 @@ if st.session_state.image_data is not None and model is not None:
              st.success("🎉 Cảm ơn bạn đã xác nhận!")
 
         elif st.session_state.user_feedback == 'Confirmed_Unsure':
+            confirmed_short_label = st.session_state.final_label_confirmed
             st.success(f"🎉 Cảm ơn bạn đã xác nhận là **{st.session_state.final_label_confirmed}**!")
-            # Lưu ảnh với nhãn đã xác nhận
-            if not st.session_state.image_saved: # Chỉ lưu 1 lần
-                 # Sử dụng image_data từ session state để lưu
-                 saved_ok, saved_label_dir = save_feedback_image(
-                     st.session_state.image_data,             # Dữ liệu ảnh
-                     st.session_state.original_filename,    # Tên file gốc
-                     st.session_state.final_label_confirmed, # Nhãn đã xác nhận
-                     COLLECTED_DATA_DIR
-                 )
-                 if saved_ok:
-                     st.info(f"Đã lưu ảnh vào thư mục '{saved_label_dir}' để cải thiện độ chắc chắn cho model sau này.")
-                     st.session_state.image_saved = True
-                     st.rerun() # Rerun để hiển thị trạng thái đã lưu
+
+            if not st.session_state.image_saved:
+                scientific_label_to_save = CLASS_TO_SCIENTIFIC.get(confirmed_short_label)
+                if scientific_label_to_save:
+                    print(f"APP: Saving unsure but confirmed image as {scientific_label_to_save}") # DEBUG
+                    saved_ok, saved_label_dir = save_feedback_image(
+                        st.session_state.image_data,             # Dữ liệu ảnh
+                        st.session_state.original_filename,    # Tên file gốc
+                        scientific_label_to_save, # <<< Dùng tên khoa học đã tra cứu
+                        COLLECTED_DATA_DIR
+                    )
+                    if saved_ok:
+                            st.info(f"Đã lưu ảnh vào thư mục '{saved_label_dir}'.")
+                            st.session_state.image_saved = True
+                            st.rerun() # Rerun để hiển thị trạng thái đã lưu
+                else:
+                    # Trường hợp không tìm thấy mapping (không nên xảy ra nếu config đúng)
+                    print(f"APP: Could not find scientific name mapping for confirmed label '{confirmed_short_label}'")
+                    st.error(f"Lỗi: Không tìm thấy tên khoa học tương ứng cho '{confirmed_short_label}' để lưu.")
+                    # Có thể vẫn rerun để xóa các nút bấm
+                    st.rerun()
+
+            # # Lưu ảnh với nhãn đã xác nhận
+            # if not st.session_state.image_saved: # Chỉ lưu 1 lần
+            #      scientific_label_to_save = CLASS_TO_SCIENTIFIC.get(confirmed_short_label)
+            #      # Sử dụng image_data từ session state để lưu
+            #      saved_ok, saved_label_dir = save_feedback_image(
+            #          st.session_state.image_data,             # Dữ liệu ảnh
+            #          st.session_state.original_filename,    # Tên file gốc
+            #          st.session_state.final_label_confirmed, # Nhãn đã xác nhận
+            #          COLLECTED_DATA_DIR
+            #      )
+            #      if saved_ok:
+            #          st.info(f"Đã lưu ảnh vào thư mục '{saved_label_dir}' để cải thiện độ chắc chắn cho model sau này.")
+            #          st.session_state.image_saved = True
+            #          st.rerun() # Rerun để hiển thị trạng thái đã lưu
 
         elif st.session_state.user_feedback in ['Incorrect_Confident', 'Search_Unsure']:
             # Hiển thị giao diện tìm kiếm
