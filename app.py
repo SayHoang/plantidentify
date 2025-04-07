@@ -7,7 +7,7 @@ import uuid
 # import requests # Không cần import trực tiếp ở đây nữa nếu st.image xử lý URL
 
 # Import các hàm và hằng số
-from config import MODEL_PATH, CLASS_NAMES, CONFIDENCE_THRESHOLD, COLLECTED_DATA_DIR
+from config import MODEL_PATH, CLASS_NAMES, CONFIDENCE_THRESHOLD, COLLECTED_DATA_DIR, CLASS_TO_SCIENTIFIC
 from utils import (load_keras_model, preprocess_image, search_taxa_autocomplete,
                    get_inat_image_urls, save_feedback_image)
 
@@ -139,6 +139,26 @@ if st.session_state.image_data is not None and model is not None:
             with feedback_cols[0]:
                 if st.button("✅ Đúng rồi", key=f"feedback_correct_{key_prefix}"):
                     st.session_state.user_feedback = 'Correct_Confident'
+                    scientific_label_to_save = CLASS_TO_SCIENTIFIC.get(pred_class)
+
+                    if scientific_label_to_save:
+                        # Gọi hàm lưu ảnh ngay lập tức
+                        print(f"APP: Saving correctly identified image as {scientific_label_to_save}") # DEBUG
+                        saved_ok, saved_label_dir = save_feedback_image(
+                            st.session_state.image_data,
+                            st.session_state.original_filename,
+                            scientific_label_to_save, # <<< Dùng tên khoa học
+                            COLLECTED_DATA_DIR
+                        )
+                        if saved_ok:
+                            # Không cần rerun ngay, chỉ cần cập nhật state và hiển thị thông báo
+                            st.session_state.image_saved = True
+                            # st.rerun() # Có thể không cần rerun ở đây nữa
+                        # else: lỗi đã được hiển thị trong save_feedback_image
+                    else:
+                        print(f"APP: Could not find scientific name mapping for {pred_class}")
+                        st.error(f"Lỗi: Không tìm thấy tên khoa học tương ứng cho '{pred_class}' để lưu.")
+
                     st.rerun()
             with feedback_cols[1]:
                  if st.button("❌ Sai rồi", key=f"feedback_incorrect_{key_prefix}"):
@@ -170,14 +190,8 @@ if st.session_state.image_data is not None and model is not None:
         # --- Xử lý dựa trên Feedback ---
         # Chỉ hiển thị các phần này nếu user_feedback đã được đặt
         if st.session_state.user_feedback == 'Correct_Confident':
-            st.success("🎉 Cảm ơn bạn đã xác nhận!")
-            # Tùy chọn: Lưu ảnh này với nhãn đúng vào collected_data
-            # if st.button("Lưu ảnh này làm dữ liệu tốt", key=f"save_correct_{key_prefix}"):
-            #    saved_ok, saved_label_dir = save_feedback_image(st.session_state.image_data, pred_class, COLLECTED_DATA_DIR)
-            #    if saved_ok:
-            #        st.info(f"Đã lưu ảnh vào thư mục '{saved_label_dir}'.")
-            #        st.session_state.image_saved = True # Đánh dấu đã lưu
-            #        st.rerun()
+            if not st.session_state.image_saved:
+             st.success("🎉 Cảm ơn bạn đã xác nhận!")
 
         elif st.session_state.user_feedback == 'Confirmed_Unsure':
             st.success(f"🎉 Cảm ơn bạn đã xác nhận là **{st.session_state.final_label_confirmed}**!")
@@ -312,11 +326,12 @@ if st.session_state.image_data is not None and model is not None:
             
 
 
-    # --- Hiển thị khi đã lưu ảnh thành công ---
-    # Khối này chỉ chạy nếu prediction_done=True VÀ image_saved=True
-    elif st.session_state.prediction_done and st.session_state.image_saved:
-         st.success("Đã lưu phản hồi của bạn. Cảm ơn bạn đã đóng góp!")
-         st.info("Bạn có thể tải lên ảnh khác ở thanh bên trái.")
+# --- Hiển thị khi đã lưu ảnh thành công ---
+# Khối này chỉ chạy nếu prediction_done=True VÀ image_saved=True
+if st.session_state.image_data is not None and st.session_state.prediction_done and st.session_state.image_saved:
+     st.markdown("---") # Thêm phân cách
+     st.success("Đã lưu phản hồi của bạn. Cảm ơn bạn đã đóng góp!")
+     st.info("Bạn có thể tải lên ảnh khác ở thanh bên trái.")
 
 # --- Chân trang ---
 st.markdown("---")

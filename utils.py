@@ -159,12 +159,6 @@ def search_taxa_autocomplete(query):
 def save_feedback_image(image_bytes, original_filename, label, base_dir):
     """Lưu ảnh được phản hồi (dạng bytes) vào thư mục tương ứng."""
     try:
-        # --- THÊM KIỂM TRA VÀ MẶC ĐỊNH CHO original_filename ---
-        if original_filename is None:
-            original_filename = "unknown_original_name.jpg" # Hoặc một tên mặc định khác
-            print("Warning: original_filename was None, using default.")
-        # -------------------------------------------------------
-
         # Làm sạch tên label
         safe_label = re.sub(r'[^\w\s-]', '', label).strip().replace(' ', '_')
         safe_label = safe_label[:100]
@@ -174,9 +168,16 @@ def save_feedback_image(image_bytes, original_filename, label, base_dir):
 
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S%f")
         # Làm sạch tên file gốc (được truyền vào và đã kiểm tra None)
-        safe_original_filename = re.sub(r'[^\w\.-]', '_', original_filename)
-        safe_original_filename = safe_original_filename[:50]
-        filename = f"{timestamp}_{safe_original_filename}"
+        file_extension = ".jpg" # Đuôi mặc định nếu không lấy được
+        if original_filename and isinstance(original_filename, str):
+             try:
+                 # Tìm dấu chấm cuối cùng để lấy đuôi file
+                 base, ext = os.path.splitext(original_filename)
+                 if ext: # Nếu có đuôi file (ví dụ: '.png', '.jpeg')
+                     file_extension = ext.lower() # Chuẩn hóa về chữ thường
+             except Exception as e_ext:
+                 print(f"Could not extract extension from '{original_filename}': {e_ext}")
+        filename = f"{timestamp}{file_extension}"
         save_path = os.path.join(label_dir, filename)
 
         # Ghi dữ liệu bytes trực tiếp
@@ -185,7 +186,6 @@ def save_feedback_image(image_bytes, original_filename, label, base_dir):
         return True, safe_label
     except TypeError as te: # Bắt cụ thể lỗi TypeError
         print(f"TypeError in save_feedback_image (label: '{label}'): {te}")
-        print(f"Image bytes type: {type(image_bytes)}, Original filename type: {type(original_filename)}")
         st.error(f"Lỗi kiểu dữ liệu khi lưu ảnh: {te}")
         return False, None
     except Exception as e:

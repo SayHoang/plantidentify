@@ -7,6 +7,11 @@ MODEL_PATH = 'best_plant_classifier_vgg16.h5'
 # Ví dụ: ['Pothos', 'Monstera'] - Bạn cần xác nhận lại!
 CLASS_NAMES = ['Pothos', 'Monstera']
 
+CLASS_TO_SCIENTIFIC = {
+    'Pothos': 'Epipremnum_aureum', # Sử dụng gạch dưới cho tên thư mục
+    'Monstera': 'Monstera_deliciosa'
+}
+
 # Ngưỡng tin cậy để coi là chắc chắn (%)
 CONFIDENCE_THRESHOLD = 90.0 # Sử dụng dạng phần trăm
 
