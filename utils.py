@@ -34,8 +34,15 @@ def initialize_firebase():
     try:
         # Chỉ thử đọc secrets nếu thuộc tính tồn tại (chạy trên Cloud)
         if hasattr(st, 'secrets'):
-            firebase_creds_data = st.secrets.get("FIREBASE_SERVICE_ACCOUNT")
+            retrieved_secret = st.secrets.get("FIREBASE_SERVICE_ACCOUNT")
             print("Attempted to read from st.secrets.")
+            if isinstance(retrieved_secret, dict):
+                print(f"DEBUG: Retrieved secret 'project_id': {retrieved_secret.get('project_id')}")
+            else:
+                print(f"DEBUG: Retrieved secret value (partial): {str(retrieved_secret)[:100]}...") # In 100 ký tự đầu nếu không phải dict
+
+            firebase_creds_data = retrieved_secret # Gán lại để logic sau dùng
+            # <<< KẾT THÚC PRINT DEBUG >>>
         else:
             print("st.secrets not available (running locally?).")
     except Exception as secrets_e:
