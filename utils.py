@@ -159,26 +159,35 @@ def search_taxa_autocomplete(query):
 def save_feedback_image(image_bytes, original_filename, label, base_dir):
     """Lưu ảnh được phản hồi (dạng bytes) vào thư mục tương ứng."""
     try:
+        # --- THÊM KIỂM TRA VÀ MẶC ĐỊNH CHO original_filename ---
+        if original_filename is None:
+            original_filename = "unknown_original_name.jpg" # Hoặc một tên mặc định khác
+            print("Warning: original_filename was None, using default.")
+        # -------------------------------------------------------
+
         # Làm sạch tên label
         safe_label = re.sub(r'[^\w\s-]', '', label).strip().replace(' ', '_')
         safe_label = safe_label[:100]
-        if not safe_label:
-            safe_label = "unknown_label"
-
+        if not safe_label: safe_label = "unknown_label"
         label_dir = os.path.join(base_dir, safe_label)
         os.makedirs(label_dir, exist_ok=True)
 
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S%f")
-        # Làm sạch tên file gốc (được truyền vào)
-        safe_original_filename = re.sub(r'[^\w\.-]', '_', original_filename) # <<< Dùng original_filename truyền vào
+        # Làm sạch tên file gốc (được truyền vào và đã kiểm tra None)
+        safe_original_filename = re.sub(r'[^\w\.-]', '_', original_filename)
         safe_original_filename = safe_original_filename[:50]
         filename = f"{timestamp}_{safe_original_filename}"
         save_path = os.path.join(label_dir, filename)
 
         # Ghi dữ liệu bytes trực tiếp
         with open(save_path, "wb") as f:
-            f.write(image_bytes) # <<< Ghi trực tiếp image_bytes
+            f.write(image_bytes)
         return True, safe_label
+    except TypeError as te: # Bắt cụ thể lỗi TypeError
+        print(f"TypeError in save_feedback_image (label: '{label}'): {te}")
+        print(f"Image bytes type: {type(image_bytes)}, Original filename type: {type(original_filename)}")
+        st.error(f"Lỗi kiểu dữ liệu khi lưu ảnh: {te}")
+        return False, None
     except Exception as e:
         print(f"Error saving feedback image to label '{label}' (safe: '{safe_label}'): {e}")
         st.error(f"Lỗi khi lưu ảnh phản hồi: {e}")
