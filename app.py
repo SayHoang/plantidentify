@@ -4,12 +4,6 @@ import streamlit as st
 import numpy as np
 import os
 import uuid
-# import requests # Không cần import trực tiếp ở đây nữa nếu st.image xử lý URL
-
-# Import các hàm và hằng số
-from config import MODEL_PATH, CLASS_NAMES, CONFIDENCE_THRESHOLD, COLLECTED_DATA_DIR, CLASS_TO_SCIENTIFIC
-from utils import (load_keras_model, preprocess_image, search_taxa_autocomplete,
-                   get_inat_image_urls, save_feedback_image)
 
 # --- Cấu hình trang ---
 st.set_page_config(
@@ -18,6 +12,12 @@ st.set_page_config(
     layout="centered",
     initial_sidebar_state="expanded"
 )
+
+# Import các hàm và hằng số
+from config import MODEL_PATH, CLASS_NAMES, CONFIDENCE_THRESHOLD, COLLECTED_DATA_DIR, CLASS_TO_SCIENTIFIC
+from utils import (load_keras_model, preprocess_image, search_taxa_autocomplete,
+                   get_inat_image_urls, save_feedback_image)
+
 
 # --- Khởi tạo Session State ---
 default_states = {

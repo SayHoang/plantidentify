@@ -28,6 +28,8 @@ env/
 venv/
 ENV/
 
+plantidentify-ca6f7-firebase-adminsdk-fbsvc-25fb51dcb6.json
+
 # IDE specific files
 .vscode/
 .idea/

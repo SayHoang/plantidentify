@@ -12,8 +12,66 @@ import os
 from datetime import datetime
 import re # Thêm thư viện regular expression để làm sạch tên file/thư mục
 
+import firebase_admin
+from firebase_admin import credentials, storage, firestore
+
 # Import base URL từ config
-from config import INAT_API_BASE_URL
+from config import INAT_API_BASE_URL, COLLECTED_DATA_DIR
+
+# --- Firebase Initialization ---
+SERVICE_ACCOUNT_KEY_PATH = 'plantidentify-ca6f7-firebase-adminsdk-fbsvc-25fb51dcb6.json'
+
+@st.cache_resource # Cache resource để chỉ khởi tạo Firebase 1 lần
+def initialize_firebase():
+    """Khởi tạo Firebase Admin SDK."""
+    try:
+        # Thử lấy credentials từ Streamlit Secrets trước (khi deploy)
+        firebase_creds_json = st.secrets.get("FIREBASE_SERVICE_ACCOUNT") # <<< Key phải khớp với tên Secret bạn đặt
+        if firebase_creds_json:
+            print("Initializing Firebase using Streamlit Secrets...")
+            # Chuyển đổi dict từ secrets thành credentials object
+            cred_obj = credentials.Certificate(firebase_creds_json)
+            firebase_admin.initialize_app(cred_obj, {
+                'storageBucket': f"{cred_obj.project_id}.appspot.com" # Tự động lấy project_id từ creds
+            })
+            print("Firebase initialized from Secrets.")
+        # Nếu không có secrets, thử tải từ file (khi chạy local)
+        elif os.path.exists(SERVICE_ACCOUNT_KEY_PATH):
+            print(f"Initializing Firebase using local key file: {SERVICE_ACCOUNT_KEY_PATH}...")
+            cred = credentials.Certificate(SERVICE_ACCOUNT_KEY_PATH)
+            project_id = cred.project_id # Lấy project ID từ file key
+            firebase_admin.initialize_app(cred, {
+                'storageBucket': f"{project_id}.appspot.com" # <<< Cấu hình storage bucket
+            })
+            print("Firebase initialized from local file.")
+        else:
+            st.error("Không tìm thấy thông tin xác thực Firebase (Secrets hoặc file key).")
+            print("Firebase credentials not found (Secrets or local file).")
+            return False # Trả về False nếu không khởi tạo được
+
+        # Kiểm tra xem có app được khởi tạo chưa (để tránh lỗi nếu hàm cache chạy lại)
+        if not firebase_admin._apps:
+             # Logic khởi tạo lại nếu cần, nhưng cache_resource thường xử lý việc này
+             print("Warning: Firebase app not found after initialization attempt.")
+             return False
+
+        return True # Trả về True nếu khởi tạo thành công
+    except ValueError as ve:
+        # Bắt lỗi cụ thể nếu Firebase đã được khởi tạo trước đó
+        if "The default Firebase app already exists" in str(ve):
+            print("Firebase app already initialized.")
+            return True # Vẫn coi là thành công nếu đã có app
+        else:
+            st.error(f"Lỗi khi khởi tạo Firebase: {ve}")
+            print(f"Error initializing Firebase: {ve}")
+            return False
+    except Exception as e:
+        st.error(f"Lỗi không xác định khi khởi tạo Firebase: {e}")
+        print(f"Unknown error initializing Firebase: {e}")
+        return False
+
+# Gọi hàm khởi tạo ngay khi load utils.py (nhờ cache nên chỉ chạy 1 lần)
+firebase_initialized = initialize_firebase()
 
 # --- Model Loading ---
 @st.cache_resource
@@ -156,39 +214,75 @@ def search_taxa_autocomplete(query):
         return []
 
 # --- File Saving for Feedback ---
-def save_feedback_image(image_bytes, original_filename, label, base_dir):
-    """Lưu ảnh được phản hồi (dạng bytes) vào thư mục tương ứng."""
+def save_feedback_image(image_bytes, original_filename, label, base_dir=COLLECTED_DATA_DIR): # base_dir giờ là tiền tố trên Storage
+    """Lưu ảnh phản hồi (dạng bytes) lên Firebase Cloud Storage."""
+    if not firebase_initialized:
+        st.error("Firebase chưa được khởi tạo, không thể lưu ảnh.")
+        return False, None
+
     try:
-        # Làm sạch tên label
+        # Làm sạch tên label để tạo đường dẫn trên Storage
         safe_label = re.sub(r'[^\w\s-]', '', label).strip().replace(' ', '_')
         safe_label = safe_label[:100]
         if not safe_label: safe_label = "unknown_label"
-        label_dir = os.path.join(base_dir, safe_label)
-        os.makedirs(label_dir, exist_ok=True)
 
+        # Tạo timestamp và tên file duy nhất
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S%f")
-        # Làm sạch tên file gốc (được truyền vào và đã kiểm tra None)
-        file_extension = ".jpg" # Đuôi mặc định nếu không lấy được
+        # Cố gắng lấy đuôi file từ tên gốc
+        file_extension = ".jpg" # Mặc định
         if original_filename and isinstance(original_filename, str):
              try:
-                 # Tìm dấu chấm cuối cùng để lấy đuôi file
-                 base, ext = os.path.splitext(original_filename)
-                 if ext: # Nếu có đuôi file (ví dụ: '.png', '.jpeg')
-                     file_extension = ext.lower() # Chuẩn hóa về chữ thường
-             except Exception as e_ext:
-                 print(f"Could not extract extension from '{original_filename}': {e_ext}")
-        filename = f"{timestamp}{file_extension}"
-        save_path = os.path.join(label_dir, filename)
+                 _, ext = os.path.splitext(original_filename)
+                 if ext: file_extension = ext.lower()
+             except Exception: pass # Bỏ qua nếu lỗi lấy đuôi file
 
-        # Ghi dữ liệu bytes trực tiếp
-        with open(save_path, "wb") as f:
-            f.write(image_bytes)
-        return True, safe_label
-    except TypeError as te: # Bắt cụ thể lỗi TypeError
-        print(f"TypeError in save_feedback_image (label: '{label}'): {te}")
-        st.error(f"Lỗi kiểu dữ liệu khi lưu ảnh: {te}")
-        return False, None
+        # Tạo đường dẫn đầy đủ trên Firebase Storage
+        # Ví dụ: collected_data/Epipremnum_aureum/20230407_193005123456.jpg
+        destination_blob_name = f"{base_dir}/{safe_label}/{timestamp}{file_extension}"
+
+        # Lấy bucket từ Firebase Storage
+        bucket = storage.bucket() # Lấy bucket mặc định đã cấu hình khi initialize
+
+        # Tạo blob (đối tượng file) trên Storage
+        blob = bucket.blob(destination_blob_name)
+
+        # Xác định content type dựa trên đuôi file (quan trọng để trình duyệt hiển thị đúng)
+        content_type = 'image/jpeg' # Mặc định
+        if file_extension == '.png':
+            content_type = 'image/png'
+        elif file_extension == '.gif':
+            content_type = 'image/gif'
+        # Thêm các loại khác nếu cần
+
+        # Upload dữ liệu ảnh (dạng bytes)
+        print(f"UTILS: Uploading to Firebase Storage: {destination_blob_name} (Content-Type: {content_type})")
+        blob.upload_from_string(
+            image_bytes,
+            content_type=content_type
+        )
+
+        print(f"UTILS: Successfully uploaded to {destination_blob_name}")
+
+        # --- (TÙY CHỌN) Lưu metadata vào Firestore ---
+        try:
+            db = firestore.client()
+            doc_ref = db.collection(u'plant_feedback').document(f'{timestamp}') # Dùng timestamp làm ID document
+            doc_ref.set({
+                u'label': label, # Lưu cả nhãn gốc người dùng nhập/chọn
+                u'storage_path': destination_blob_name,
+                u'original_filename': original_filename,
+                u'timestamp': firestore.SERVER_TIMESTAMP # Tự động lấy giờ server
+                # Thêm các trường khác nếu muốn (ví dụ: dự đoán ban đầu, confidence...)
+            })
+            print(f"UTILS: Metadata saved to Firestore collection 'plant_feedback', doc ID: {timestamp}")
+        except Exception as fs_e:
+            print(f"UTILS: Error saving metadata to Firestore: {fs_e}")
+            st.warning("Lưu ảnh thành công nhưng không thể lưu thông tin vào CSDL.")
+            # Không coi đây là lỗi nghiêm trọng làm hỏng việc upload ảnh
+
+        return True, safe_label # Trả về thành công và tên thư mục (label) đã dùng
+
     except Exception as e:
-        print(f"Error saving feedback image to label '{label}' (safe: '{safe_label}'): {e}")
-        st.error(f"Lỗi khi lưu ảnh phản hồi: {e}")
+        print(f"Error uploading image to Firebase Storage for label '{label}' (safe: '{safe_label}'): {e}")
+        st.error(f"Lỗi khi tải ảnh lên bộ nhớ Cloud: {e}")
         return False, None
