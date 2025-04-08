@@ -359,4 +359,4 @@ if st.session_state.image_data is not None and st.session_state.prediction_done 
 
 # --- Chân trang ---
 st.markdown("---")
-st.markdown("Xây dựng với Streamlit & TensorFlow/Keras. Dữ liệu tham khảo từ iNaturalist.org.")
+st.markdown("Xây dựng bởi Hoàng Anh (HA). Dữ liệu tham khảo từ iNaturalist.org.")
